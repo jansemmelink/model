@@ -5,11 +5,11 @@ Start with a json file to describe your model, then generate go code and write t
 
 # Install
 ```
-go get -u github.com/jansemmelink/model
+go install github.com/jansemmelink/model/modelgen
 ```
 
 # Usage
 ```
-% model -f mymodel.json
+% modelgen -f mymodel.json -o ./mymodel
 ```
-That will generate code in ./gen
+That will generate code in ./mymodel/api and ./mymodel.system
