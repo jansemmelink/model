@@ -1,0 +1,202 @@
+package {{.Package}}
+
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+    "github.com/guregu/null"
+)
+
+type {{.Type.Name.Pub}} struct {
+	DbItem
+    {{if .Parent}}{{.Parent.Name.Pub}} *{{.Parent.Name.Pub}} `json:"{{.Parent.Name.Ext}}"` //parent (details not read when in list, only id set){{end}}
+    {{range .Fields}}{{if .IsRef}}{{.Name.Pub}} *{{.Type.Name.Pub}} `json:"{{.Name.Ext}},omitempty"`{{else}}{{.Name.Pub}} {{.Type.Name.Prv}} `json:"{{.Name.Ext}},omitempty"`{{end}}
+    {{end}}
+}
+
+func ListOf{{.Type.Name.Pub}}(
+    {{if .Parent}}
+        {{.Parent.Name.Prv}}ID int64,
+    {{end}}
+    limit int,
+) ([]{{.Type.Name.Pub}}, error) {
+	db, err := dbconn()
+	if err != nil {
+		return nil, errors.Wrapf(err, "db not connected")
+	}
+    switch {
+        case limit == 0:   limit = 10   //default limit
+        case limit < 0:    limit = 1
+        case limit > 1000: limit=1000
+    }
+
+    //todo: get only key display fields for this type
+	sql := fmt.Sprintf("select id,{{.FieldsExtCSV}} from {{.Type.Name.Ext}}")
+    {{if .Parent}}
+        sql += fmt.Sprintf(" where {{.Parent.Name.Ext}}_id=%d", {{.Parent.Name.Prv}}ID)
+    {{end}}
+    sql += fmt.Sprintf(" order by {{.TitleFieldsExtCSV}} limit %d", limit)
+
+	result, err := db.Query(sql)
+	if err != nil {
+		return nil, errors.Wrapf(err, "sql=%s", sql)
+	}
+	defer result.Close()
+
+	list := []{{.Type.Name.Pub}}{}
+	for result.Next() {
+		item := {{.Type.Name.Pub}}{
+            {{if .Parent}}
+            {{.Parent.Name.Pub}}:&{{.Parent.Name.Pub}}{DbItem:DbItem{ID:{{.Parent.Name.Prv}}ID}},
+            {{end}}
+        }
+
+        //local values that supports parsing on null values
+        {{range .Fields}}
+            {{if .IsRef}}var temp{{.Name.Pub}}ID null.Int{{end}}
+            {{if eq .Type.Name.Ext "string"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+            {{if eq .Type.Name.Ext "int"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+            {{if eq .Type.Name.Ext "bool"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+        {{end}}
+
+        //scan into null types in case values are not defined in the db
+		if err := result.Scan(
+            &item.DbItem.ID,
+            {{range .Fields}}
+                {{if .IsRef}}
+                    &temp{{.Name.Pub}}ID,
+                {{else}}
+                    {{if eq .Type.Name.Ext "string"}}&temp{{.Name.Pub}},
+                    {{else}}
+                        {{if eq .Type.Name.Ext "int"}}&temp{{.Name.Pub}},
+                        {{else}}
+                            {{if eq .Type.Name.Ext "bool"}}&temp{{.Name.Pub}},
+                            {{else}}
+                                &item.{{.Name.Pub}},
+                            {{end}}
+                        {{end}}
+                    {{end}}
+                {{end}}
+            {{end}}
+        ); err != nil {
+			return nil, errors.Wrapf(err, "scan failed")
+		}
+
+        //assign from temp fields and read referenced items
+        {{range .Fields}}
+            {{if .IsRef}}
+            {
+                if temp{{.Name.Pub}}ID.Int64 > 0 {
+                    r, err := Get{{.Type.Name.Pub}}(temp{{.Name.Pub}}ID.Int64)
+                    if err != nil {
+                        return nil, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Name.Ext}}")
+                    }
+                    item.{{.Name.Pub}} = &r
+                }
+            }
+            {{end}}
+            {{if eq .Type.Name.Ext "string"}}item.{{.Name.Pub}} = temp{{.Name.Pub}}.{{.Type.Name.Pub}}{{end}}
+            {{if eq .Type.Name.Ext "int"}}item.{{.Name.Pub}} = int(temp{{.Name.Pub}}.Int64){{end}}
+            {{if eq .Type.Name.Ext "bool"}}item.{{.Name.Pub}} = temp{{.Name.Pub}}.{{.Type.Name.Pub}}{{end}}
+        {{end}}
+
+		list = append(list, item)
+	}
+	return list, nil
+}
+
+func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, error) {
+	db, err := dbconn()
+	if err != nil {
+		return {{.Type.Name.Pub}}{}, errors.Wrapf(err, "db not connected")
+	}
+
+	//read details
+	sql := fmt.Sprintf("select ")
+    {{if .Parent}}
+    sql += "{{.Parent.Name.Ext}}_id,"//parent id
+    {{end}}
+    sql += fmt.Sprintf("{{.FieldsExtCSV}} from {{.Type.Name.Ext}} where id=%d", {{.Type.Name.Prv}}ID)
+	result, err := db.Query(sql)
+	if err != nil {
+		return {{.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to query {{.Type.Name.Ext}} sql=%s", sql)
+	}
+	defer result.Close()
+
+	if !result.Next() {
+		return {{.Type.Name.Pub}}{}, fmt.Errorf("{{.Type.Name.Ext}}.id=%d not found", {{.Type.Name.Prv}}ID)
+	}
+
+    item := {{.Type.Name.Pub}}{
+        {{if .Parent}}
+        {{.Parent.Name.Pub}}:&{{.Parent.Name.Pub}}{},
+        {{end}}
+    }
+
+    //local values that supports parsing on null values
+    {{range .Fields}}
+        {{if .IsRef}}var temp{{.Name.Pub}}ID null.Int{{end}}
+        {{if eq .Type.Name.Ext "string"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+        {{if eq .Type.Name.Ext "int"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+        {{if eq .Type.Name.Ext "bool"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+    {{end}}
+
+	if err := result.Scan(
+        {{if .Parent}}
+        &item.{{.Parent.Name.Pub}}.DbItem.ID,
+        {{end}}
+        {{range .Fields}}
+            {{if .IsRef}}
+                &temp{{.Name.Pub}}ID,
+            {{else}}
+                {{if eq .Type.Name.Ext "string"}}&temp{{.Name.Pub}},
+                {{else}}
+                    {{if eq .Type.Name.Ext "int"}}&temp{{.Name.Pub}},
+                    {{else}}
+                        {{if eq .Type.Name.Ext "bool"}}&temp{{.Name.Pub}},
+                        {{else}}
+                            &item.{{.Name.Pub}},
+                        {{end}}
+                    {{end}}
+                {{end}}
+            {{end}}
+        {{end}}
+	); err != nil {
+		return {{.Type.Name.Pub}}{}, errors.Wrapf(err, "scan failed")
+	}
+
+	//read parent items
+    {{if .Parent}}
+    {
+        parent, err := Get{{.Parent.Name.Pub}}(item.{{.Parent.Name.Pub}}.ID)
+        if err != nil {
+            return {{$.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Parent.Name.Ext}} (parent)")
+        }
+        item.{{.Parent.Name.Pub}} = &parent
+    }
+    {{end}}
+
+	//assign from temp fields and read referenced items
+    {{range .Fields}}
+        {{if .IsRef}}
+        {
+            if temp{{.Name.Pub}}ID.Int64 > 0 {
+                r, err := Get{{.Type.Name.Pub}}(temp{{.Name.Pub}}ID.Int64)
+                if err != nil {
+                    return {{$.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Name.Ext}}")
+                }
+                item.{{.Name.Pub}} = &r
+            }
+        }
+        {{end}}
+        {{if eq .Type.Name.Ext "string"}}item.{{.Name.Pub}} = temp{{.Name.Pub}}.{{.Type.Name.Pub}}{{end}}
+        {{if eq .Type.Name.Ext "int"}}item.{{.Name.Pub}} = int(temp{{.Name.Pub}}.Int64){{end}}
+        {{if eq .Type.Name.Ext "bool"}}item.{{.Name.Pub}} = temp{{.Name.Pub}}.{{.Type.Name.Pub}}{{end}}
+    {{end}}
+
+
+	//todo: should sometimes read children... not always, e.g. client should not read all products and sources, but order should read order items
+
+    item.DbItem.ID = {{.Type.Name.Prv}}ID
+	return item, nil
+}

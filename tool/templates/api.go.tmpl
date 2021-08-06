@@ -1,0 +1,75 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+
+	"github.com/gorilla/pat"
+)
+
+func main() {
+	h := Router()
+	if err := http.ListenAndServe(":12345", h); err != nil {
+		panic(err)
+	}
+}//main()
+
+func unknown(httpRes http.ResponseWriter, httpReq *http.Request) {
+	http.Error(httpRes, "unknown", http.StatusNotFound)
+}
+
+func Router() http.Handler {
+	h := pat.New()
+    {{range .Routes}}h.{{.Method}}("{{.Path}}", {{.Handler}})
+    {{end}}
+	h.Get("/", unknown)
+    return h
+}
+
+{{range .Items}}
+{{if .Parent}}
+func get{{.Parent.Name.Pub}}{{.Type.Name.Pub}}s(httpRes http.ResponseWriter, httpReq *http.Request) {
+    {{.Parent.Name.Prv}}ID := dbIDFromString(httpReq.URL.Query().Get(":{{.Parent.Name.Ext}}_id"))
+    list, err := system.ListOf{{.Type.Name.Pub}}({{.Parent.Name.Prv}}ID, 10)
+{{else}}
+func get{{.Type.Name.Pub}}s(httpRes http.ResponseWriter, httpReq *http.Request) {
+    list, err := system.ListOf{{.Type.Name.Pub}}(10)
+{{end}}
+	if err != nil {
+		http.Error(httpRes, err.Error(), http.StatusNotFound)
+		return
+	}
+	jsonList, err := json.Marshal(list)
+	if err != nil {
+		http.Error(httpRes, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	httpRes.Header().Set("Content-Type", "application/json")
+	httpRes.Write(jsonList)
+}
+
+func get{{.Type.Name.Pub}}(httpRes http.ResponseWriter, httpReq *http.Request) {
+	{{.Type.Name.Prv}}ID := dbIDFromString(httpReq.URL.Query().Get(":{{.Type.Name.Ext}}_id"))
+	{{.Type.Name.Prv}}, err := system.Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID)
+	if err != nil {
+		http.Error(httpRes, err.Error(), http.StatusNotFound)
+		return
+	}
+	json{{.Type.Name.Pub}}, err := json.Marshal({{.Type.Name.Prv}})
+	if err != nil {
+		http.Error(httpRes, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	httpRes.Header().Set("Content-Type", "application/json")
+	httpRes.Write(json{{.Type.Name.Pub}})
+}
+{{end}}
+
+func dbIDFromString(s string) int64 {
+	if i64, err := strconv.ParseInt(s, 10, 64); err != nil {
+		return 0
+	} else {
+		return i64
+	}
+}
