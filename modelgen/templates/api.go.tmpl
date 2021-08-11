@@ -1,3 +1,8 @@
+//================================================================================
+//
+//         G E N E R A T E D   C O D E   -   D O   N O T   E D I T ! ! !
+//
+//================================================================================
 package main
 
 import (
@@ -31,10 +36,14 @@ func Router() http.Handler {
 {{if .Parent}}
 func get{{.Parent.Name.Pub}}{{.Type.Name.Pub}}s(httpRes http.ResponseWriter, httpReq *http.Request) {
     {{.Parent.Name.Prv}}ID := dbIDFromString(httpReq.URL.Query().Get(":{{.Parent.Name.Ext}}_id"))
-    list, err := system.ListOf{{.Type.Name.Pub}}({{.Parent.Name.Prv}}ID, 10)
+	limit := intFromString(httpReq.URL.Query().Get("limit"))
+	ctx := system.NewContext(httpReq.Context())
+    list, err := ctx.ListOf{{.Type.Name.Pub}}({{.Parent.Name.Prv}}ID, limit)
 {{else}}
 func get{{.Type.Name.Pub}}s(httpRes http.ResponseWriter, httpReq *http.Request) {
-    list, err := system.ListOf{{.Type.Name.Pub}}(10)
+	limit := intFromString(httpReq.URL.Query().Get("limit"))
+	ctx := system.NewContext(httpReq.Context())
+    list, err := ctx.ListOf{{.Type.Name.Pub}}(limit)
 {{end}}
 	if err != nil {
 		http.Error(httpRes, err.Error(), http.StatusNotFound)
@@ -50,8 +59,13 @@ func get{{.Type.Name.Pub}}s(httpRes http.ResponseWriter, httpReq *http.Request) 
 }
 
 func get{{.Type.Name.Pub}}(httpRes http.ResponseWriter, httpReq *http.Request) {
+	ctx := system.NewContext(httpReq.Context())
 	{{.Type.Name.Prv}}ID := dbIDFromString(httpReq.URL.Query().Get(":{{.Type.Name.Ext}}_id"))
-	{{.Type.Name.Prv}}, err := system.Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID)
+	loadChildren := nameList(httpReq.URL.Query().Get("load"))
+	{{.Type.Name.Prv}}, err := ctx.Get{{.Type.Name.Pub}}(
+		{{.Type.Name.Prv}}ID,
+		loadChildren,
+	)
 	if err != nil {
 		http.Error(httpRes, err.Error(), http.StatusNotFound)
 		return
@@ -66,10 +80,26 @@ func get{{.Type.Name.Pub}}(httpRes http.ResponseWriter, httpReq *http.Request) {
 }
 {{end}}
 
-func dbIDFromString(s string) int64 {
+func dbIDFromString(s string) system.ID {
 	if i64, err := strconv.ParseInt(s, 10, 64); err != nil {
 		return 0
 	} else {
-		return i64
+		return system.ID(i64)
+	}
+}
+
+func intFromString(s string) int {
+	if i64, err := strconv.ParseInt(s, 10, 64); err != nil {
+		return 0
+	} else {
+		return int(i64)
+	}
+}
+
+func nameList(s string) []string {
+	if list, err := csv.NewReader(strings.NewReader(s)).Read(); err != nil {
+		return []string{}
+	} else {
+		return list
 	}
 }

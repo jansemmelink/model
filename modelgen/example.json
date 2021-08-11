@@ -147,7 +147,6 @@
                 "fields":{
                     "name":{"type":"string"},
                     "surname":{"type":"string"},
-                    "phone":{"type":"string"},
                     "email":{"type":"string"},
                     "username":{"type":"string"},
                     "salt":{"type":"string"},
@@ -230,17 +229,23 @@
                     "accepts_marketing":{"type":"bool"},
                     "active":{"type":"bool"},
                     "hash":{"type":"string"},
-                    "user":{"type":"->user", "doc":"Customer may be associated with a user account, then the customer can login"},
-                    "channel":{"type":"->channel", "doc":"Customer will be associated with a channel only when it is created when placing an order from a channel"},
+                    "channel":{"type":"->channel", "doc":"Customer will be associated with a channel only when it is created when placing an order from a channel"}
+                }
+            }
+        },
+        "customer_source":{
+            "item":{
+                "parent":"customer",
+                "fields":{
                     "source":{"type":"->source", "doc":"Customer will be associated with a source only when needed"}
                 }
             }
         },
-        "source_customer":{
+        "customer_user":{
             "item":{
-                "parent":"source",
+                "parent":"customer",
                 "fields":{
-
+                    "user":{"type":"->user", "doc":"Customer may be associated with a user account, then the customer can login"}
                 }
             }
         }

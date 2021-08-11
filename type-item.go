@@ -12,6 +12,8 @@ type ITypeItem interface {
 
 	Resolve(m IModel, fti FileTypeItem) error
 	Fields() []IField
+	AddChild(m ITypeItem)
+	Children() []ITypeItem
 }
 
 type IField interface {
@@ -25,6 +27,7 @@ func newTypeItem(b typeBase, fti FileTypeItem) (IType, error) {
 		typeBase: b,
 		parent:   nil, //set in Resolve()
 		fields:   map[string]*typeItemField{},
+		children: []ITypeItem{},
 	}
 
 	for fieldName := range fti.Fields {
@@ -43,8 +46,9 @@ func newTypeItem(b typeBase, fti FileTypeItem) (IType, error) {
 //implements IType
 type typeItem struct {
 	typeBase
-	parent ITypeItem
-	fields map[string]*typeItemField
+	parent   ITypeItem
+	fields   map[string]*typeItemField
+	children []ITypeItem //other type with this as parent
 }
 
 func (t typeItem) Parent() ITypeItem {
@@ -57,6 +61,19 @@ func (t typeItem) Fields() []IField {
 		list = append(list, f)
 	}
 	return list
+}
+
+func (t *typeItem) AddChild(childType ITypeItem) {
+	for _, c := range t.children {
+		if c == childType {
+			return
+		}
+	}
+	t.children = append(t.children, childType)
+}
+
+func (t typeItem) Children() []ITypeItem {
+	return t.children
 }
 
 //called after all types were added to the model, to link between types

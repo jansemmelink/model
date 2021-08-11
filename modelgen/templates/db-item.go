@@ -1,11 +1,20 @@
 package system
 
-type amount float64
+type ID int64
+
+type IItem interface {
+	GetID() ID
+}
 
 type DbItem struct {
-	ID int64 `json:"id"`
+	ID ID `json:"id"`
 	// Created  time.Time `json:"created"`
 	// Modified time.Time `json:"modified"`
+}
+
+//DbItem implements IItem
+func (dbitem DbItem) GetID() ID {
+	return ID(dbitem.ID)
 }
 
 /*

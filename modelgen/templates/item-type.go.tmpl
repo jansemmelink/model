@@ -1,3 +1,8 @@
+//================================================================================
+//
+//         G E N E R A T E D   C O D E   -   D O   N O T   E D I T ! ! !
+//
+//================================================================================
 package {{.Package}}
 
 import (
@@ -5,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
     "github.com/guregu/null"
+    //"github.com/stewelarend/logger"
 )
 
 type {{.Type.Name.Pub}} struct {
@@ -12,30 +18,39 @@ type {{.Type.Name.Pub}} struct {
     {{if .Parent}}{{.Parent.Name.Pub}} *{{.Parent.Name.Pub}} `json:"{{.Parent.Name.Ext}}"` //parent (details not read when in list, only id set){{end}}
     {{range .Fields}}{{if .IsRef}}{{.Name.Pub}} *{{.Type.Name.Pub}} `json:"{{.Name.Ext}},omitempty"`{{else}}{{.Name.Pub}} {{.Type.Name.Prv}} `json:"{{.Name.Ext}},omitempty"`{{end}}
     {{end}}
+    {{range .Children}}{{.Type.Name.Pub}}s []{{.Type.Name.Pub}} `json:"{{.Type.Name.Ext}}s,omitempty"` //list of {{.Type.Name.Ext}}s that belongs to this {{$.Type.Name.Ext}}
+    {{end}}
 }
 
-func ListOf{{.Type.Name.Pub}}(
+//NOTE: ListOfXxx does not read child items...
+func (ctx *Context) ListOf{{.Type.Name.Pub}}(
     {{if .Parent}}
-        {{.Parent.Name.Prv}}ID int64,
+        {{.Parent.Name.Prv}}ID ID,
     {{end}}
     limit int,
 ) ([]{{.Type.Name.Pub}}, error) {
+    {{if .Parent}}log.Debugf("ListOf{{.Type.Name.Pub}}({{.Parent.Name.Ext}}_id=%d,limit=%d)", {{.Parent.Name.Prv}}ID, limit)
+    {{else}}log.Debugf("ListOf{{.Type.Name.Pub}}(limit=%d)", limit)
+    {{end}}
 	db, err := dbconn()
 	if err != nil {
 		return nil, errors.Wrapf(err, "db not connected")
 	}
     switch {
         case limit == 0:   limit = 10   //default limit
-        case limit < 0:    limit = 1
+        case limit < -1:    limit = 1   //-1 is used for unlimited, be careful...
         case limit > 1000: limit=1000
     }
 
     //todo: get only key display fields for this type
-	sql := fmt.Sprintf("select id,{{.FieldsExtCSV}} from {{.Type.Name.Ext}}")
+	sql := fmt.Sprintf("select id,{{.FieldsExtCSV}} from `{{.Type.Name.Ext}}`")
     {{if .Parent}}
         sql += fmt.Sprintf(" where {{.Parent.Name.Ext}}_id=%d", {{.Parent.Name.Prv}}ID)
     {{end}}
-    sql += fmt.Sprintf(" order by {{.TitleFieldsExtCSV}} limit %d", limit)
+    sql += fmt.Sprintf(" order by {{.TitleFieldsExtCSV}}")
+    if limit != -1 {
+		sql += fmt.Sprintf(" limit %d", limit)
+	}
 
 	result, err := db.Query(sql)
 	if err != nil {
@@ -82,12 +97,15 @@ func ListOf{{.Type.Name.Pub}}(
 			return nil, errors.Wrapf(err, "scan failed")
 		}
 
+        log.Debugf("  got list item {{.Type.Name.Ext}}.id=%d", item.DbItem.ID)
+
         //assign from temp fields and read referenced items
         {{range .Fields}}
             {{if .IsRef}}
             {
                 if temp{{.Name.Pub}}ID.Int64 > 0 {
-                    r, err := Get{{.Type.Name.Pub}}(temp{{.Name.Pub}}ID.Int64)
+                    log.Debugf("Read reference {{$.Type.Name.Ext}}.{{.Name.Ext}}.{{.Type.Name.Ext}}_id=%d", temp{{.Name.Pub}}ID.Int64)
+                    r, err := ctx.Get{{.Type.Name.Pub}}(ID(temp{{.Name.Pub}}ID.Int64), nil)//not reading children of referenced item
                     if err != nil {
                         return nil, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Name.Ext}}")
                     }
@@ -105,7 +123,16 @@ func ListOf{{.Type.Name.Pub}}(
 	return list, nil
 }
 
-func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, error) {
+//Get with or without children...
+func (ctx *Context) Get{{.Type.Name.Pub}}(
+    {{.Type.Name.Prv}}ID ID,
+    loadChildren []string,//indicate which children to load, if any, from ({{range .Children}}{{.Type.Name.Ext}} {{end}})
+) ({{.Type.Name.Pub}}, error) {
+    if item,ok := ctx.getItem("{{.Type.Name.Ext}}", {{.Type.Name.Prv}}ID); ok {
+        return item.({{.Type.Name.Pub}}),nil
+    }
+
+    log.Debugf("Getting {{.Type.Name.Ext}}.id=%d", {{.Type.Name.Prv}}ID)
 	db, err := dbconn()
 	if err != nil {
 		return {{.Type.Name.Pub}}{}, errors.Wrapf(err, "db not connected")
@@ -116,7 +143,7 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
     {{if .Parent}}
     sql += "{{.Parent.Name.Ext}}_id,"//parent id
     {{end}}
-    sql += fmt.Sprintf("{{.FieldsExtCSV}} from {{.Type.Name.Ext}} where id=%d", {{.Type.Name.Prv}}ID)
+    sql += fmt.Sprintf("{{.FieldsExtCSV}} from `{{.Type.Name.Ext}}` where id=%d", {{.Type.Name.Prv}}ID)
 	result, err := db.Query(sql)
 	if err != nil {
 		return {{.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to query {{.Type.Name.Ext}} sql=%s", sql)
@@ -128,6 +155,7 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
 	}
 
     item := {{.Type.Name.Pub}}{
+        DbItem: DbItem{ID: {{.Type.Name.Prv}}ID},
         {{if .Parent}}
         {{.Parent.Name.Pub}}:&{{.Parent.Name.Pub}}{},
         {{end}}
@@ -138,7 +166,7 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
         {{if .IsRef}}var temp{{.Name.Pub}}ID null.Int{{end}}
         {{if eq .Type.Name.Ext "string"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
         {{if eq .Type.Name.Ext "int"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
-        {{if eq .Type.Name.Ext "bool"}}var temp{{.Name.Pub}} null.{{.Type.Name.Pub}}{{end}}
+        {{if eq .Type.Name.Ext "bool"}}var temp{{.Name.Pub}} {{.Type.Name.Pub}}{{end}} //compared to null.Bool, this also accepts "1" or "yes" as true
     {{end}}
 
 	if err := result.Scan(
@@ -168,7 +196,8 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
 	//read parent items
     {{if .Parent}}
     {
-        parent, err := Get{{.Parent.Name.Pub}}(item.{{.Parent.Name.Pub}}.ID)
+        log.Debugf("Read {{$.Type.Name.Ext}}.parent: {{.Parent.Name.Ext}}_id=%d", item.{{.Parent.Name.Pub}}.ID)
+        parent, err := ctx.Get{{.Parent.Name.Pub}}(item.{{.Parent.Name.Pub}}.ID, nil) //not reading parent's children
         if err != nil {
             return {{$.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Parent.Name.Ext}} (parent)")
         }
@@ -181,7 +210,8 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
         {{if .IsRef}}
         {
             if temp{{.Name.Pub}}ID.Int64 > 0 {
-                r, err := Get{{.Type.Name.Pub}}(temp{{.Name.Pub}}ID.Int64)
+                log.Debugf("Read reference {{$.Type.Name.Ext}}.{{.Name.Ext}}.{{.Type.Name.Ext}}_id=%d", temp{{.Name.Pub}}ID.Int64)
+                r, err := ctx.Get{{.Type.Name.Pub}}(ID(temp{{.Name.Pub}}ID.Int64), nil)
                 if err != nil {
                     return {{$.Type.Name.Pub}}{}, errors.Wrapf(err, "failed to read {{$.Type.Name.Ext}}.{{.Name.Ext}}")
                 }
@@ -194,9 +224,23 @@ func Get{{.Type.Name.Pub}}({{.Type.Name.Prv}}ID int64) ({{.Type.Name.Pub}}, erro
         {{if eq .Type.Name.Ext "bool"}}item.{{.Name.Pub}} = temp{{.Name.Pub}}.{{.Type.Name.Pub}}{{end}}
     {{end}}
 
+    //read selected children too:
+    for _,child := range loadChildren {
+        switch child {
+            {{range .Children}}
+            case "{{.Type.Name.Ext}}":
+                log.Debugf("Reading {{$.Type.Name.Ext}} children {{.Type.Name.Ext}} ...")
+                var err error
+                if item.{{.Type.Name.Pub}}s,err = ctx.ListOf{{.Type.Name.Pub}}(item.ID, -1); err != nil {
+                    return {{$.Type.Name.Pub}}{}, errors.Wrapf(err, "fail to load list of {{$.Type.Name.Pub}}.%s", child)
+                }
+                log.Debugf("Read %d {{$.Type.Name.Ext}} children {{.Type.Name.Ext}}", len(item.{{.Type.Name.Pub}}s))
+            {{end}}
+            default:
+                return {{.Type.Name.Pub}}{}, errors.Errorf("{{$.Type.Name.Pub}} does not have list of %s", child)
+        }
+    }//for each specified child type
 
-	//todo: should sometimes read children... not always, e.g. client should not read all products and sources, but order should read order items
-
-    item.DbItem.ID = {{.Type.Name.Prv}}ID
+    ctx.addItem("{{.Type.Name.Ext}}", item)
 	return item, nil
 }

@@ -172,9 +172,10 @@ func generateItemType(dir string, ti model.ITypeItem) error {
 func getItemData(ti model.ITypeItem) itemData {
 	//template data
 	itemData := itemData{
-		Package: "system",
-		Type:    itemTypeData{Name: names(ti.Name())},
-		Fields:  []itemFieldData{},
+		Package:  "system",
+		Type:     itemTypeData{Name: names(ti.Name())},
+		Fields:   []itemFieldData{},
+		Children: []itemData{},
 	}
 	if ti.Parent() != nil {
 		itemData.Parent = &itemParentData{
@@ -190,15 +191,20 @@ func getItemData(ti model.ITypeItem) itemData {
 		}
 		itemData.Fields = append(itemData.Fields, fieldData)
 		if !f.IsRef() {
-			itemData.FieldsExtCSV += "," + fieldData.Name.Ext
+			itemData.FieldsExtCSV += ",`" + fieldData.Name.Ext + "`"
 		} else {
-			itemData.FieldsExtCSV += "," + fieldData.Name.Ext + "_id"
+			itemData.FieldsExtCSV += ",`" + fieldData.Name.Ext + "_id`"
 		}
 	}
 	if len(itemData.FieldsExtCSV) > 0 {
 		itemData.FieldsExtCSV = itemData.FieldsExtCSV[1:] //skip leading comma
 	}
 	itemData.TitleFieldsExtCSV = itemData.FieldsExtCSV
+
+	for _, child := range ti.Children() {
+		childItemData := getItemData(child)
+		itemData.Children = append(itemData.Children, childItemData)
+	}
 	return itemData
 }
 
@@ -251,6 +257,7 @@ type itemData struct {
 	Fields            []itemFieldData
 	FieldsExtCSV      string
 	TitleFieldsExtCSV string
+	Children          []itemData
 }
 
 type itemTypeData struct {

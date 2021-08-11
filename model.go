@@ -41,6 +41,15 @@ func New(n string, f FileModel) (IModel, error) {
 			}
 		}
 	}
+
+	//list children types for item types (do this after parent references were defined in Resolve
+	for _, t := range m.types {
+		if ti, ok := t.(ITypeItem); ok {
+			if ti.Parent() != nil {
+				ti.Parent().AddChild(ti)
+			}
+		}
+	}
 	return m, nil
 }
 
